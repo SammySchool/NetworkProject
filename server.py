@@ -1,63 +1,89 @@
 import socket
-import threading
-import time
-import sys
 
-HOST = 'localhost'
-PORT = 9090
+#print the Tic-Tac-Toe board
+def print_board(board):
+    print("  0 1 2")
+    for i in range(3):
+        print(f"{i} {' '.join(board[i])}")
 
-MAX_PLAYERS = 2
+#check win condition
+def check_win(board, player):
+    for i in range(3):
+        if all(cell == player for cell in board[i]) or all(board[j][i] == player for j in range(3)):
+            return True
+    if all(board[i][i] == player for i in range(3)) or all(board[i][2 - i] == player for i in range(3)):
+        return True
+    return False
 
-players = []
+#handle the game logic
+def play_game(conn1, addr1, conn2, addr2):
+    board = [[" " for _ in range(3)] for _ in range(3)]
+    current_player = 'X'
 
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    while True:
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        current_conn = server_socket if current_player == 'X' else conn2
+        other_conn = conn2 if current_conn == server_socket else conn1
+        current_addr = addr1 if current_conn == server_socket else addr2
 
-try:
+        server_socket.sendto(b'Your turn', current_addr)
+        server_socket.sendto(b'Opponent\'s turn', addr2) 
+
+        print_board(board)
+
+        server_socket.sendto(str(board).encode(), current_addr)
+
+        #move from the current player
+        move_data, _ = current_conn.recvfrom(1024)
+        move = tuple(map(int, move_data.decode().split(',')))
+
+        #move is valid
+        if board[move[0]][move[1]] != " ":
+            server_socket.sendto(b'Invalid move. Try again.', current_addr)
+            continue
+
+        #update the board with the move
+        board[move[0]][move[1]] = current_player
+
+        #check for a win or tie
+        if check_win(board, current_player):
+            server_socket.sendto(b'You win!', current_addr)
+            other_conn.sendto(b'You lose!', addr2) 
+            break
+        elif all(all(cell != " " for cell in row) for row in board):
+            server_socket.sendto(b'It\'s a tie!', current_addr)
+            other_conn.sendto(b'It\'s a tie!', addr2)  
+            break
+
+        #switch player
+        current_player = 'O' if current_player == 'X' else 'X'
+
+#main function / server start
+def main():
+    HOST = ''  
+    PORT = 5000  
+
+    #create a socket
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    #b
     server_socket.bind((HOST, PORT))
-except socket.error as e:
-    print(str(e))
-    sys.exit()
 
-server_socket.listen(2)
-print(f'Server is listening on port {PORT}')
+    print("Server started...")
 
-def handle_client(client_socket, player_name):
-    while len(players) < MAX_PLAYERS:
-        client_socket.send('Waiting for other players to join...'.encode('utf-8'))
-        time.sleep(1)
-    client_socket.send('Game is starting...'.encode('utf-8'))
-    client_socket.close()
+    # Accept two connections
+    conn1, addr1 = server_socket.recvfrom(1024)
+    conn2, addr2 = server_socket.recvfrom(1024)
 
-while True:
-    client_socket, addr = server_socket.accept()
-    print(f'Connection from {addr} has been established!')
-    player_name = client_socket.recv(1024).decode('utf-8')
-    players.append(player_name)
-    thread = threading.Thread(target=handle_client, args=(client_socket, player_name))
-    thread.start()
+    print("Connected to:", addr1)
+    print("Connected to:", addr2)
 
-server_socket.close()
+    #start game
+    play_game(conn1, addr1, conn2, addr2)  
 
-# Path: client.py
-import socket
+    #close the server socket
+    server_socket.close()
 
-HOST = 'localhost'
-PORT = 9090
-
-client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client_socket.connect((HOST, PORT))
-
-player_name = input('Enter your name: ')
-client_socket.send(player_name.encode('utf-8'))
-
-while True:
-    message = client_socket.recv(1024).decode('utf-8')
-    print(message)
-    if message == 'Game is starting...':
-        break
-    
-client_socket.close()
-
-#The server will accept connections from clients and store their names in a list. Once the list has two names, the server will start the game. The client will send their name to the server and wait for the game to start. Once the game starts, the client will close the connection.
-
+if __name__ == "__main__":
+    main()
 
