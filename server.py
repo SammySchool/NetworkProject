@@ -90,7 +90,7 @@ def reset_game():
     board = [[' ']*3 for _ in range(3)]
 
 def main():
-    host = '127.0.0.1'
+    host = '0.0.0.0'
     port = 5555
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
