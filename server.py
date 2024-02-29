@@ -1,89 +1,107 @@
 import socket
+import threading
 
-#print the Tic-Tac-Toe board
-def print_board(board):
-    print("  0 1 2")
+# Global variables for the game state
+current_player = 'X'
+board = [[' ']*3 for _ in range(3)]
+players = {}
+player_order = []
+
+def handle_client(conn, addr):
+    global current_player
+
+    player_mark = conn.recv(1024).decode()
+    players[player_mark] = conn
+    player_order.append(player_mark)
+    print(f"Player {player_mark} connected from {addr}")
+
+    conn.send("Welcome to Tic Tac Toe! Waiting for other player...".encode())
+
+    if len(players) == 2:
+        for player in players.values():
+            try:
+                player.send("Both players connected. Game starting...".encode())
+            except BrokenPipeError:
+                print(f"Error sending data to {player}: Broken pipe")
+
+        while True:
+            for player in player_order:
+                conn = players[player]
+                try:
+                    conn.sendall(f"Your turn. Current board state:\n{format_board()}".encode())
+                except BrokenPipeError:
+                    print(f"Error sending data to {player}: Broken pipe")
+                    continue
+
+                move = conn.recv(1024).decode().strip()
+                if not move:
+                    print("No move data received from Player", player)
+                    continue
+
+                try:
+                    row, col = map(int, move.split(':'))
+                except ValueError:
+                    print("Invalid move format received from Player", player)
+                    continue
+
+                if board[row][col] == ' ':
+                    board[row][col] = current_player
+                    current_player = 'X' if current_player == 'O' else 'O'
+                    winner = check_win()
+                    if winner:
+                        send_to_all(f"Player {winner} wins!\n{format_board()}")
+                        reset_game()
+                        break
+                    elif check_tie():
+                        send_to_all(f"It's a tie!\n{format_board()}")
+                        reset_game()
+                        break
+                    else:
+                        send_to_all(f"Move made by Player {player}.\n{format_board()}")
+                else:
+                    conn.send("Invalid move. Try again.".encode())
+
+
+def send_to_all(message):
+    for conn in players.values():
+        conn.send(message.encode())
+
+def format_board():
+    return '\n'.join([' '.join(row) for row in board])
+
+def check_win():
     for i in range(3):
-        print(f"{i} {' '.join(board[i])}")
+        if board[i][0] == board[i][1] == board[i][2] != ' ':
+            return board[i][0]
+        if board[0][i] == board[1][i] == board[2][i] != ' ':
+            return board[0][i]
+    if board[0][0] == board[1][1] == board[2][2] != ' ':
+        return board[0][0]
+    if board[0][2] == board[1][1] == board[2][0] != ' ':
+        return board[0][2]
+    return None
 
-#check win condition
-def check_win(board, player):
-    for i in range(3):
-        if all(cell == player for cell in board[i]) or all(board[j][i] == player for j in range(3)):
-            return True
-    if all(board[i][i] == player for i in range(3)) or all(board[i][2 - i] == player for i in range(3)):
-        return True
-    return False
+def check_tie():
+    return all(cell != ' ' for row in board for cell in row)
 
-#handle the game logic
-def play_game(conn1, addr1, conn2, addr2):
-    board = [[" " for _ in range(3)] for _ in range(3)]
+def reset_game():
+    global current_player, board
     current_player = 'X'
+    board = [[' ']*3 for _ in range(3)]
+
+def main():
+    host = '127.0.0.1'
+    port = 5555
+
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((host, port))
+    server_socket.listen(2)
+
+    print("Server listening on port", port)
 
     while True:
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        current_conn = server_socket if current_player == 'X' else conn2
-        other_conn = conn2 if current_conn == server_socket else conn1
-        current_addr = addr1 if current_conn == server_socket else addr2
-
-        server_socket.sendto(b'Your turn', current_addr)
-        server_socket.sendto(b'Opponent\'s turn', addr2) 
-
-        print_board(board)
-
-        server_socket.sendto(str(board).encode(), current_addr)
-
-        #move from the current player
-        move_data, _ = current_conn.recvfrom(1024)
-        move = tuple(map(int, move_data.decode().split(',')))
-
-        #move is valid
-        if board[move[0]][move[1]] != " ":
-            server_socket.sendto(b'Invalid move. Try again.', current_addr)
-            continue
-
-        #update the board with the move
-        board[move[0]][move[1]] = current_player
-
-        #check for a win or tie
-        if check_win(board, current_player):
-            server_socket.sendto(b'You win!', current_addr)
-            other_conn.sendto(b'You lose!', addr2) 
-            break
-        elif all(all(cell != " " for cell in row) for row in board):
-            server_socket.sendto(b'It\'s a tie!', current_addr)
-            other_conn.sendto(b'It\'s a tie!', addr2)  
-            break
-
-        #switch player
-        current_player = 'O' if current_player == 'X' else 'X'
-
-#main function / server start
-def main():
-    HOST = ''  
-    PORT = 5000  
-
-    #create a socket
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    #b
-    server_socket.bind((HOST, PORT))
-
-    print("Server started...")
-
-    # Accept two connections
-    conn1, addr1 = server_socket.recvfrom(1024)
-    conn2, addr2 = server_socket.recvfrom(1024)
-
-    print("Connected to:", addr1)
-    print("Connected to:", addr2)
-
-    #start game
-    play_game(conn1, addr1, conn2, addr2)  
-
-    #close the server socket
-    server_socket.close()
+        conn, addr = server_socket.accept()
+        threading.Thread(target=handle_client, args=(conn, addr)).start()
 
 if __name__ == "__main__":
     main()
-

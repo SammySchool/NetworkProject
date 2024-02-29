@@ -1,7 +1,7 @@
 import tkinter as tk
-from itertools import cycle
 from tkinter import font
 from typing import NamedTuple
+import socket
 
 class Player(NamedTuple):
     label: str
@@ -20,84 +20,71 @@ DEFAULT_PLAYERS = (
 
 class TicTacToeGame:
     def __init__(self, players=DEFAULT_PLAYERS, board_size=BOARD_SIZE):
-        self._players = cycle(players)
+        self._players = players
         self.board_size = board_size
-        self.current_player = next(self._players)
+        self.current_player_index = 0
         self.winner_combo = []
-        self._current_moves = []
+        self._current_moves = [[Move(row, col) for col in range(self.board_size)] for row in range(self.board_size)]
         self._has_winner = False
-        self._winning_combos = []
-        self._setup_board()
-
-    def _setup_board(self):
-        self._current_moves = [
-            [Move(row, col) for col in range(self.board_size)]
-            for row in range(self.board_size)
-        ]
         self._winning_combos = self._get_winning_combos()
 
     def _get_winning_combos(self):
-        rows = [
-            [(move.row, move.col) for move in row]
-            for row in self._current_moves
-        ]
+        rows = [[(move.row, move.col) for move in row] for row in self._current_moves]
         columns = [list(col) for col in zip(*rows)]
         first_diagonal = [row[i] for i, row in enumerate(rows)]
         second_diagonal = [col[j] for j, col in enumerate(reversed(columns))]
         return rows + columns + [first_diagonal, second_diagonal]
 
     def toggle_player(self):
-        """Return a toggled player."""
-        self.current_player = next(self._players)
+        """Toggle between players."""
+        self.current_player_index = (self.current_player_index + 1) % len(self._players)
 
     def is_valid_move(self, move):
-        """Return True if move is valid, and False otherwise."""
+        """Check if the move is valid."""
         row, col = move.row, move.col
-        move_was_not_played = self._current_moves[row][col].label == ""
-        no_winner = not self._has_winner
-        return no_winner and move_was_not_played
+        return not self._has_winner and self._current_moves[row][col].label == ""
 
     def process_move(self, move):
-        """Process the current move and check if it's a win."""
+        """Process the move and check for a winner."""
         row, col = move.row, move.col
         self._current_moves[row][col] = move
         for combo in self._winning_combos:
             results = set(self._current_moves[n][m].label for n, m in combo)
-            is_win = (len(results) == 1) and ("" not in results)
-            if is_win:
+            if len(results) == 1 and "" not in results:
                 self._has_winner = True
                 self.winner_combo = combo
                 break
 
     def has_winner(self):
-        """Return True if the game has a winner, and False otherwise."""
+        """Check if there is a winner."""
         return self._has_winner
 
     def is_tied(self):
-        """Return True if the game is tied, and False otherwise."""
-        no_winner = not self._has_winner
-        played_moves = (
-            move.label for row in self._current_moves for move in row
-        )
-        return no_winner and all(played_moves)
+        """Check if the game is tied."""
+        played_moves = (move.label for row in self._current_moves for move in row)
+        return not self._has_winner and all(played_moves)
 
     def reset_game(self):
-        """Reset the game state to play again."""
+        """Reset the game."""
+        self.current_player_index = 0
+        self._has_winner = False
+        self.winner_combo = []
         for row, row_content in enumerate(self._current_moves):
             for col, _ in enumerate(row_content):
                 row_content[col] = Move(row, col)
-        self._has_winner = False
-        self.winner_combo = []
 
 class TicTacToeBoard(tk.Tk):
-    def __init__(self, game):
+    def __init__(self, game, server_address, server_port):
         super().__init__()
         self.title("Tic-Tac-Toe Game")
         self._cells = {}
         self._game = game
+        self.server_address = server_address
+        self.server_port = server_port
         self._create_menu()
         self._create_board_display()
         self._create_board_grid()
+        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def _create_menu(self):
         menu_bar = tk.Menu(master=self)
@@ -133,34 +120,34 @@ class TicTacToeBoard(tk.Tk):
                     width=3,
                     height=2,
                     highlightbackground="lightblue",
+                    command=lambda r=row, c=col: self.make_move(r, c)
                 )
                 self._cells[button] = (row, col)
-                button.bind("<ButtonPress-1>", self.play)
                 button.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
 
-    def play(self, event):
+    def make_move(self, row, col):
         """Handle a player's move."""
-        clicked_btn = event.widget
-        row, col = self._cells[clicked_btn]
-        move = Move(row, col, self._game.current_player.label)
+        move = Move(row, col, self._game._players[self._game.current_player_index].label)
         if self._game.is_valid_move(move):
-            self._update_button(clicked_btn)
+            self._update_button(row, col)
             self._game.process_move(move)
+            self.client_socket.sendto(f"{row}:{col}".encode(), (self.server_address, self.server_port))
             if self._game.is_tied():
                 self._update_display(msg="Tied game!", color="red")
             elif self._game.has_winner():
                 self._highlight_cells()
-                msg = f'Player "{self._game.current_player.label}" won!'
-                color = self._game.current_player.color
+                msg = f'Player "{self._game._players[self._game.current_player_index].label}" won!'
+                color = self._game._players[self._game.current_player_index].color
                 self._update_display(msg, color)
             else:
                 self._game.toggle_player()
-                msg = f"{self._game.current_player.label}'s turn"
+                msg = f"{self._game._players[self._game.current_player_index].label}'s turn"
                 self._update_display(msg)
 
-    def _update_button(self, clicked_btn):
-        clicked_btn.config(text=self._game.current_player.label)
-        clicked_btn.config(fg=self._game.current_player.color)
+    def _update_button(self, row, col):
+        button = next(btn for btn, (r, c) in self._cells.items() if r == row and c == col)
+        button.config(text=self._game._players[self._game.current_player_index].label)
+        button.config(fg=self._game._players[self._game.current_player_index].color)
 
     def _update_display(self, msg, color="black"):
         self.display["text"] = msg
@@ -182,9 +169,12 @@ class TicTacToeBoard(tk.Tk):
 
 def main():
     """Create the game's board and run its main loop."""
+    server_address = '167.96.40.49'
+    server_port = 5555
     game = TicTacToeGame()
-    board = TicTacToeBoard(game)
+    board = TicTacToeBoard(game, server_address, server_port)
     board.mainloop()
+    board.client_socket.close()
 
 if __name__ == "__main__":
     main()
