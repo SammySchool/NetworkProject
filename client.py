@@ -29,7 +29,7 @@ def main():
             print(response)
 
             if "Your turn" in response:
-                print("Current board state:")
+                print("Current board state:") #gets suck here and doesn't print the board
                 response = client_socket.recv(1024).decode()
                 print(response)
 

@@ -169,7 +169,7 @@ class TicTacToeBoard(tk.Tk):
 
 def main():
     """Create the game's board and run its main loop."""
-    server_address = '167.96.40.49'
+    server_address = '0.0.0.0'
     server_port = 5555
     game = TicTacToeGame()
     board = TicTacToeBoard(game, server_address, server_port)

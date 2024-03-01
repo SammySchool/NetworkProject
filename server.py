@@ -20,7 +20,7 @@ def handle_client(conn, addr):
     if len(players) == 2:
         for player in players.values():
             try:
-                player.send("Both players connected. Game starting...".encode())
+                player.send("Both players connected. Game starting...\n".encode())
             except BrokenPipeError:
                 print(f"Error sending data to {player}: Broken pipe")
 
@@ -29,6 +29,7 @@ def handle_client(conn, addr):
                 conn = players[player]
                 try:
                     conn.sendall(f"Your turn. Current board state:\n{format_board()}".encode())
+                    conn.send("Enter your move (row:col): ".encode())
                 except BrokenPipeError:
                     print(f"Error sending data to {player}: Broken pipe")
                     continue
