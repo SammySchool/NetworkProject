@@ -129,25 +129,23 @@ class TicTacToeBoard(tk.Tk):
         """Handle a player's move."""
         move = Move(row, col, self._game._players[self._game.current_player_index].label)
         if self._game.is_valid_move(move):
-            self._update_button(row, col)
             self._game.process_move(move)
-            self.client_socket.sendto(f"{row}:{col}".encode(), (self.server_address, self.server_port))
-            if self._game.is_tied():
-                self._update_display(msg="Tied game!", color="red")
-            elif self._game.has_winner():
-                self._highlight_cells()
-                msg = f'Player "{self._game._players[self._game.current_player_index].label}" won!'
-                color = self._game._players[self._game.current_player_index].color
-                self._update_display(msg, color)
+            self._update_button(row, col)  # Reflect the move on the board
+            if self._game.has_winner():
+                # Handle win scenario
+                self._update_display(f'Player "{move.label}" won!', self._game._players[self._game.current_player_index].color)
+            elif self._game.is_tied():
+                # Handle tie scenario
+                self._update_display("Tie game!", "red")
             else:
-                self._game.toggle_player()
-                msg = f"{self._game._players[self._game.current_player_index].label}'s turn"
-                self._update_display(msg)
+                self._game.toggle_player()  # Move to the next player
+                self._update_display(f"{self._game._players[self._game.current_player_index].label}'s turn")
 
     def _update_button(self, row, col):
+        """Update button text and color based on the player."""
         button = next(btn for btn, (r, c) in self._cells.items() if r == row and c == col)
-        button.config(text=self._game._players[self._game.current_player_index].label)
-        button.config(fg=self._game._players[self._game.current_player_index].color)
+        current_player = self._game._players[self._game.current_player_index]
+        button.config(text=current_player.label, fg=current_player.color)
 
     def _update_display(self, msg, color="black"):
         self.display["text"] = msg
