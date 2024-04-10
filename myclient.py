@@ -5,6 +5,7 @@ import tic_tac_toe
 from typing import NamedTuple
 from tkinter import font
 from tkinter import messagebox, font
+from tic_tac_toe import Move
 
 class TicTacToeBoard(tk.Tk):
     def __init__(self, server_address, server_port):
@@ -100,7 +101,7 @@ class TicTacToeBoard(tk.Tk):
             for col, _ in enumerate(row_content):
                 row_content[col] = Move(row, col)
 def main():
-    server_address = '127.0.0.1'  
+    server_address = '0.0.0.0'  
     server_port = 5555
     app = TicTacToeBoard(server_address, server_port)
     app.mainloop()
