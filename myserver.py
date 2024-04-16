@@ -1,51 +1,38 @@
-import socket
-import threading
+import asyncio
+import websockets
 from tictactoe_game import TicTacToeGame, Player, Move
 
-def handle_client(conn, addr, game, player_id):
-    while True:
+async def handle_client(websocket, path, game):
+    player_id = game.add_player(websocket)
+    if player_id is not None:
+        await websocket.send(f"PLAYER {player_id + 1}")
         try:
-            data = conn.recv(1024).decode()
-            if not data:
-                break
-            print(f"Received move from {addr}: {data}")
-            row, col = map(int, data.split(':'))
-            valid_move, game_status = game.process_move(Move(row, col, game.players[player_id].label), player_id)
-            if valid_move:
-                broadcast(f"MOVE {row} {col} {game.players[player_id].label}", game)
-                if game_status != "":
-                    broadcast(game_status, game)
-                    game.reset_game()
-            else:
-                conn.sendall("INVALID MOVE".encode())
-        except Exception as e:
-            print(f"Error handling client {addr}: {e}")
-            break
-    conn.close()
+            async for message in websocket:
+                print(f"Received move: {message}")
+                row, col = map(int, message.split(':'))
+                valid_move, game_status = game.process_move(Move(row, col, game.players[player_id].label), player_id)
+                if valid_move:
+                    await broadcast(f"MOVE {row} {col} {game.players[player_id].label}", game)
+                    if game_status != "":
+                        await broadcast(game_status, game)
+                        game.reset_game()
+                else:
+                    await websocket.send("INVALID MOVE")
+        except websockets.exceptions.ConnectionClosed:
+            print("Client disconnected")
+        finally:
+            game.remove_player(player_id)
 
-def broadcast(message, game):
+async def broadcast(message, game):
     for player in game.players:
-        player.conn.sendall(message.encode())
+        if player.conn:
+            await player.conn.send(message)
 
-def accept_connections(server_socket, game):
-    while len(game.players) < 2:
-        conn, addr = server_socket.accept()
-        player_id = game.add_player(conn)
-        print(f"Player {player_id + 1} connected from {addr}")
-        conn.sendall(f"PLAYER {player_id + 1}".encode())
-        threading.Thread(target=handle_client, args=(conn, addr, game, player_id)).start()
-
-def server_main():
-    host = '0.0.0.0'
-    port = 5555
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((host, port))
-    server_socket.listen(2)
-    print("Server started. Waiting for players...")
-
+async def main():
     game = TicTacToeGame()
-
-    accept_connections(server_socket, game)
+    async with websockets.serve(lambda ws, path: handle_client(ws, path, game), '0.0.0.0', 5555):
+        print("Server started. Waiting for players...")
+        await asyncio.Future()  # Run forever
 
 if __name__ == "__main__":
-    server_main()
+    asyncio.run(main())
